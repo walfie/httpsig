@@ -1,5 +1,12 @@
 use std::error::Error;
 
+use openssl::hash::MessageDigest;
+use openssl::pkey::HasPrivate;
+use openssl::pkey::PKey;
+use openssl::pkey::PKeyRef;
+use openssl::rsa::Rsa;
+use openssl::sign::Signer;
+
 fn main() -> Result<(), Box<dyn Error>> {
     let input = br#"POST /foo?param=value&pet=dog HTTP/1.1
 Host: example.com
@@ -12,12 +19,28 @@ Content-Length: 18
 
     let request = parse_request(input);
 
+    // Generate a keypair
+    let keypair = Rsa::generate(2048).unwrap();
+    let keypair = PKey::from_rsa(keypair).unwrap();
+
+    let signature = compute_signature(&request, MessageDigest::sha256(), &keypair)?;
+    dbg!(base64::encode(&signature));
+
+    Ok(())
+}
+
+fn compute_signature<T>(
+    request: &http::Request<T>,
+    digest: MessageDigest,
+    private_key: &PKeyRef<impl HasPrivate>,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut signer = Signer::new(digest, private_key)?;
+
     let mut payload_to_sign: Vec<u8> = Vec::new();
     create_payload_to_sign(&request, &mut payload_to_sign)?;
 
-    dbg!(String::from_utf8(payload_to_sign)?);
-
-    Ok(())
+    signer.update(&payload_to_sign)?;
+    Ok(signer.sign_to_vec()?)
 }
 
 fn create_payload_to_sign<T>(
