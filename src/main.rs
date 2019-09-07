@@ -1,9 +1,6 @@
 use std::error::Error;
-use std::fmt::Write;
 
-use openssl::pkey::PKeyRef;
-
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let input = br#"POST /foo?param=value&pet=dog HTTP/1.1
 Host: example.com
 Date: Sun, 05 Jan 2014 21:31:40 GMT
@@ -15,29 +12,36 @@ Content-Length: 18
 
     let request = parse_request(input);
 
-    dbg!(signature_payload(&request));
+    let mut payload_to_sign: Vec<u8> = Vec::new();
+    create_payload_to_sign(&request, &mut payload_to_sign)?;
+
+    dbg!(String::from_utf8(payload_to_sign)?);
+
+    Ok(())
 }
 
-fn signature_payload<T>(req: &http::Request<T>) -> Result<String, Box<dyn Error>> {
-    let mut output = String::new();
+fn create_payload_to_sign<T>(
+    req: &http::Request<T>,
+    output: &mut impl std::io::Write,
+) -> Result<(), Box<dyn Error>> {
     write!(
-        &mut output,
+        output,
         "(request-target): {} {}",
         req.method().as_str().to_ascii_lowercase(),
-        req.uri().to_string()
+        req.uri()
     )?;
 
     for (header_name, header_value) in req.headers() {
         // HeaderName's `as_str` is guaranteed to be lowercase
         write!(
-            &mut output,
+            output,
             "\n{}: {}",
             header_name.as_str(),
             header_value.to_str()?
         )?;
     }
 
-    Ok(output)
+    Ok(())
 }
 
 // Not returning a `Result` here because it's not part of the library
