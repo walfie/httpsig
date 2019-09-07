@@ -6,6 +6,7 @@ use openssl::pkey::PKey;
 use openssl::pkey::PKeyRef;
 use openssl::rsa::Rsa;
 use openssl::sign::Signer;
+use std::fmt::Write;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let input = br#"POST /foo?param=value&pet=dog HTTP/1.1
@@ -23,10 +24,35 @@ Content-Length: 18
     let keypair = Rsa::generate(2048).unwrap();
     let keypair = PKey::from_rsa(keypair).unwrap();
 
-    let signature = compute_signature(&request, MessageDigest::sha256(), &keypair)?;
-    dbg!(base64::encode(&signature));
+    let signature = compute_signature_header(&request, "Test", MessageDigest::sha256(), &keypair)?;
+    dbg!(&signature);
 
     Ok(())
+}
+
+fn compute_signature_header<T>(
+    request: &http::Request<T>,
+    key_id: &str,
+    digest: MessageDigest,
+    private_key: &PKeyRef<impl HasPrivate>,
+) -> Result<String, Box<dyn Error>> {
+    let signature = compute_signature(&request, digest, &private_key)?;
+    let base64_signature = base64::encode(&signature);
+
+    let mut output = String::new();
+
+    write!(
+        &mut output,
+        "keyId=\"{}\",headers=\"(request-target)",
+        key_id
+    )?;
+    for (header_name, _) in request.headers() {
+        write!(&mut output, " {}", header_name.as_str())?;
+    }
+
+    write!(&mut output, "\",signature=\"{}\"", base64_signature)?;
+
+    Ok(output)
 }
 
 fn compute_signature<T>(
@@ -67,7 +93,7 @@ fn create_payload_to_sign<T>(
     Ok(())
 }
 
-// Not returning a `Result` here because it's not part of the library
+// Not returning a `Result` here because it's out of scope for the library
 fn parse_request<'a>(buf: &'a [u8]) -> http::Request<&'a [u8]> {
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers);
