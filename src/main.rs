@@ -39,18 +39,79 @@ gIT7aFOYBFwGgQAQkWNKLvySgKbAZRTeLBacpHMuQdl1DfdntvAyqpAZ0lY0RKmW
 G6aFKaqQfOXKCyWoUiVknQJAXrlgySFci/2ueKlIE1QqIiLSZ8V8OlpFLRnb1pzI
 7U1yQXnTAEFYM560yJlzUpOb1V4cScGd365tiSMvxLOvTA==
 -----END RSA PRIVATE KEY-----"#;
-    let request = parse_request(input);
+    let mut request = parse_request(input);
 
     let private_key = PKey::private_key_from_pem(private_pem)?;
+    let public_key = PKey::public_key_from_pem(public_pem)?;
 
     let signature =
         create_signature_header(&request, "Test", MessageDigest::sha256(), &private_key)?;
 
-    dbg!(signature);
+    request
+        .headers_mut()
+        .insert("signature", signature.parse()?);
+
+    if let Some(parts) = parse_signature_parts(&signature) {
+        assert!(validate_signature_parts(
+            &request,
+            &parts,
+            MessageDigest::sha256(),
+            &public_key
+        )?);
+    } else {
+        panic!("Failed to parse parts {:?}", signature);
+    }
 
     Ok(())
 }
 
+fn validate_signature_parts<'a, T>(
+    request: &http::Request<T>,
+    parts: &SignatureParts<'a>,
+    digest: MessageDigest,
+    public_key: &PKeyRef<impl HasPublic>,
+) -> Result<bool, Box<dyn Error>> {
+    let signature = base64::decode(parts.signature)?;
+
+    let mut verifier = Verifier::new(digest, public_key)?;
+    let mut to_verify: Vec<u8> = Vec::new();
+
+    for header_name in parts.headers.split(' ') {
+        if header_name == "(request-target)" {
+            write!(
+                &mut to_verify,
+                "(request-target): {} {}\n",
+                request.method().as_str().to_ascii_lowercase(),
+                request.uri()
+            )?;
+        } else if let Some(header_value) = request.headers().get(header_name) {
+            write!(
+                &mut to_verify,
+                "{}: {}\n",
+                header_name,
+                header_value.to_str()?
+            )?;
+        } else {
+            return Ok(false);
+        }
+    }
+
+    // `pop` to remove the trailing newline. If it returns `None`, there were no headers, so we
+    // should default to checking the `date` header.
+    if to_verify.pop().is_none() {
+        if let Some(date) = request.headers().get("date") {
+            write!(&mut to_verify, "date: {}", date.to_str()?)?;
+        } else {
+            return Ok(false);
+        }
+    }
+
+    verifier.update(&to_verify)?;
+
+    Ok(verifier.verify(&signature)?)
+}
+
+#[derive(Debug)]
 struct SignatureParts<'a> {
     headers: &'a str,
     key_id: &'a str,
@@ -86,9 +147,9 @@ fn parse_signature_parts<'a>(signature_string: &'a str) -> Option<SignatureParts
         }
     }
 
-    if let (Some(h), Some(k), Some(s)) = (headers, key_id, signature) {
+    if let (Some(k), Some(s)) = (key_id, signature) {
         return Some(SignatureParts {
-            headers: h,
+            headers: headers.unwrap_or("date"),
             key_id: k,
             signature: s,
             algorithm,
