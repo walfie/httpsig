@@ -1,11 +1,11 @@
-use std::error::Error;
-
 use openssl::hash::MessageDigest;
 use openssl::pkey::HasPrivate;
 use openssl::pkey::PKey;
 use openssl::pkey::PKeyRef;
 use openssl::sign::Signer;
-use std::fmt::Write;
+use std::error::Error;
+use std::fmt::Write as _;
+use std::io::Write as _;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Values taken from:
@@ -46,14 +46,14 @@ G6aFKaqQfOXKCyWoUiVknQJAXrlgySFci/2ueKlIE1QqIiLSZ8V8OlpFLRnb1pzI
     let private_key = PKey::private_key_from_pem(private_pem)?;
 
     let signature =
-        compute_signature_header(&request, "Test", MessageDigest::sha256(), &private_key)?;
+        create_signature_header(&request, "Test", MessageDigest::sha256(), &private_key)?;
 
     dbg!(signature);
 
     Ok(())
 }
 
-fn compute_signature_header<T>(
+fn create_signature_header<T>(
     request: &http::Request<T>,
     key_id: &str,
     digest: MessageDigest,
@@ -86,34 +86,25 @@ fn compute_signature<T>(
     let mut signer = Signer::new(digest, private_key)?;
 
     let mut payload_to_sign: Vec<u8> = Vec::new();
-    create_payload_to_sign(&request, &mut payload_to_sign)?;
-
-    signer.update(&payload_to_sign)?;
-    Ok(signer.sign_to_vec()?)
-}
-
-fn create_payload_to_sign<T>(
-    req: &http::Request<T>,
-    output: &mut impl std::io::Write,
-) -> Result<(), Box<dyn Error>> {
     write!(
-        output,
+        &mut payload_to_sign,
         "(request-target): {} {}",
-        req.method().as_str().to_ascii_lowercase(),
-        req.uri()
+        request.method().as_str().to_ascii_lowercase(),
+        request.uri()
     )?;
 
-    for (header_name, header_value) in req.headers() {
+    for (header_name, header_value) in request.headers() {
         // HeaderName's `as_str` is guaranteed to be lowercase
         write!(
-            output,
+            &mut payload_to_sign,
             "\n{}: {}",
             header_name.as_str(),
             header_value.to_str()?
         )?;
     }
 
-    Ok(())
+    signer.update(&payload_to_sign)?;
+    Ok(signer.sign_to_vec()?)
 }
 
 // Not returning a `Result` here because it's out of scope for the library
