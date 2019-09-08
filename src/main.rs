@@ -1,8 +1,6 @@
 use openssl::hash::MessageDigest;
-use openssl::pkey::HasPrivate;
-use openssl::pkey::PKey;
-use openssl::pkey::PKeyRef;
-use openssl::sign::Signer;
+use openssl::pkey::{HasPrivate, HasPublic, PKey, PKeyRef};
+use openssl::sign::{Signer, Verifier};
 use std::error::Error;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -51,6 +49,53 @@ G6aFKaqQfOXKCyWoUiVknQJAXrlgySFci/2ueKlIE1QqIiLSZ8V8OlpFLRnb1pzI
     dbg!(signature);
 
     Ok(())
+}
+
+struct SignatureParts<'a> {
+    headers: &'a str,
+    key_id: &'a str,
+    signature: &'a str,
+    algorithm: Option<&'a str>,
+}
+
+fn parse_signature_parts<'a>(signature_string: &'a str) -> Option<SignatureParts<'a>> {
+    let mut headers = None;
+    let mut key_id = None;
+    let mut algorithm = None;
+    let mut signature = None;
+
+    for part in signature_string.split(',') {
+        let mut kv = part.splitn(2, '=');
+
+        if let (Some(key), Some(value)) = (kv.next(), kv.next()) {
+            if !(value.starts_with('"') && value.ends_with('"')) {
+                return None;
+            }
+
+            let value = value.trim_start_matches('"').trim_end_matches('"');
+
+            match key {
+                "headers" => headers = Some(value),
+                "keyId" => key_id = Some(value),
+                "algorithm" => algorithm = Some(value),
+                "signature" => signature = Some(value),
+                _ => {}
+            }
+        } else {
+            return None;
+        }
+    }
+
+    if let (Some(h), Some(k), Some(s)) = (headers, key_id, signature) {
+        return Some(SignatureParts {
+            headers: h,
+            key_id: k,
+            signature: s,
+            algorithm,
+        });
+    } else {
+        return None;
+    }
 }
 
 fn create_signature_header<T>(
