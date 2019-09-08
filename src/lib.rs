@@ -5,7 +5,23 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::io::Write as _;
 
-pub fn validate_signature_parts<'a, T>(
+pub fn verify_request<'a, T>(
+    request: &http::Request<T>,
+    digest: MessageDigest,
+    public_key: &PKeyRef<impl HasPublic>,
+) -> Result<bool, Box<dyn Error>> {
+    if let Some(signature) = request.headers().get("signature") {
+        if let Some(parts) = parse_signature_parts(signature.to_str()?) {
+            verify_signature_parts(request, &parts, digest, public_key)
+        } else {
+            Ok(false)
+        }
+    } else {
+        Ok(false)
+    }
+}
+
+pub fn verify_signature_parts<'a, T>(
     request: &http::Request<T>,
     parts: &SignatureParts<'a>,
     digest: MessageDigest,
@@ -99,6 +115,20 @@ pub fn parse_signature_parts<'a>(signature_string: &'a str) -> Option<SignatureP
     }
 }
 
+pub fn add_signature_header<T>(
+    request: &mut http::Request<T>,
+    key_id: &str,
+    digest: MessageDigest,
+    private_key: &PKeyRef<impl HasPrivate>,
+) -> Result<(), Box<dyn Error>> {
+    request.headers_mut().remove("signature");
+
+    let header = create_signature_header(&request, key_id, digest, private_key)?;
+    request.headers_mut().insert("signature", header.parse()?);
+    Ok(())
+}
+
+// Assumes request doesn't already have a signature header
 pub fn create_signature_header<T>(
     request: &http::Request<T>,
     key_id: &str,
