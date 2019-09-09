@@ -9,7 +9,7 @@ pub fn verify_request<'a, T>(
     request: &http::Request<T>,
     digest: MessageDigest,
     public_key: &PKeyRef<impl HasPublic>,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     if let Some(signature) = request.headers().get("signature") {
         if let Some(parts) = parse_signature_parts(signature.to_str()?) {
             verify_signature_parts(request, &parts, digest, public_key)
@@ -26,7 +26,7 @@ pub fn verify_signature_parts<'a, T>(
     parts: &SignatureParts<'a>,
     digest: MessageDigest,
     public_key: &PKeyRef<impl HasPublic>,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let signature = base64::decode(parts.signature)?;
 
     let mut verifier = Verifier::new(digest, public_key)?;
@@ -120,7 +120,7 @@ pub fn add_signature_header<T>(
     key_id: &str,
     digest: MessageDigest,
     private_key: &PKeyRef<impl HasPrivate>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     request.headers_mut().remove("signature");
 
     let header = create_signature_header(&request, key_id, digest, private_key)?;
@@ -134,7 +134,7 @@ pub fn create_signature_header<T>(
     key_id: &str,
     digest: MessageDigest,
     private_key: &PKeyRef<impl HasPrivate>,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let signature = compute_signature(&request, digest, &private_key)?;
     let base64_signature = base64::encode(&signature);
 
@@ -158,7 +158,7 @@ pub fn compute_signature<T>(
     request: &http::Request<T>,
     digest: MessageDigest,
     private_key: &PKeyRef<impl HasPrivate>,
-) -> Result<Vec<u8>, Box<dyn Error>> {
+) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
     let mut signer = Signer::new(digest, private_key)?;
 
     let mut payload_to_sign: Vec<u8> = Vec::new();

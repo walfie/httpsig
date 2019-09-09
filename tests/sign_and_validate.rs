@@ -36,8 +36,10 @@ Content-Length: 18
 
 {"hello": "world"}"#;
 
+type BoxError = Box<dyn Error + Send + Sync>;
+
 // Adds signature header to a request and verifies that the signature is valid
-fn verify(request: &[u8], public_key: &[u8], signature_header: &str) -> Result<(), Box<dyn Error>> {
+fn verify(request: &[u8], public_key: &[u8], signature_header: &str) -> Result<(), BoxError> {
     let public_key = PKey::public_key_from_pem(public_key)?;
     let signature_header = signature_header.parse()?;
 
@@ -54,7 +56,7 @@ fn verify(request: &[u8], public_key: &[u8], signature_header: &str) -> Result<(
 // If a list of headers is not included, the date is the only header that is signed by default.
 // https://tools.ietf.org/html/draft-cavage-http-signatures-10#appendix-C.1
 #[test]
-fn verify_default() -> Result<(), Box<dyn Error>> {
+fn verify_default() -> Result<(), BoxError> {
     verify(
         HTTP_REQUEST,
         PUBLIC_PEM,
@@ -65,7 +67,7 @@ fn verify_default() -> Result<(), Box<dyn Error>> {
 // The minimum recommended data to sign is the (request-target), host, and date.
 // https://tools.ietf.org/html/draft-cavage-http-signatures-10#appendix-C.2
 #[test]
-fn verify_basic() -> Result<(), Box<dyn Error>> {
+fn verify_basic() -> Result<(), BoxError> {
     verify(
         HTTP_REQUEST,
         PUBLIC_PEM,
@@ -76,7 +78,7 @@ fn verify_basic() -> Result<(), Box<dyn Error>> {
 // A strong signature including all of the headers and a digest of the body of the HTTP request
 // https://tools.ietf.org/html/draft-cavage-http-signatures-10#appendix-C.3
 #[test]
-fn verify_all_headers() -> Result<(), Box<dyn Error>> {
+fn verify_all_headers() -> Result<(), BoxError> {
     verify(
         HTTP_REQUEST,
         PUBLIC_PEM,
@@ -85,7 +87,7 @@ fn verify_all_headers() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn sign_all_headers() -> Result<(), Box<dyn Error>> {
+fn sign_all_headers() -> Result<(), BoxError> {
     let mut request = parse_request(HTTP_REQUEST);
     let private_key = PKey::private_key_from_pem(PRIVATE_PEM)?;
     let public_key = PKey::public_key_from_pem(PUBLIC_PEM)?;
